@@ -1,0 +1,102 @@
+/*
+ * Copyright 2019 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// QTI_BEGIN: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+/* Changes from Qualcomm Innovation Center are provided under the following license:
+ *
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
+// QTI_END: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+
+#include <compositionengine/impl/CompositionEngine.h>
+#include <cutils/properties.h>
+#include <ui/GraphicBuffer.h>
+
+#include "DisplayDevice.h"
+#include "FrameTracer/FrameTracer.h"
+#include "Layer.h"
+#include "SurfaceFlingerDefaultFactory.h"
+#include "SurfaceFlingerProperties.h"
+
+#include "DisplayHardware/ComposerHal.h"
+#include "Scheduler/FrameTimeline.h"
+#include "Scheduler/Scheduler.h"
+#include "Scheduler/VsyncConfiguration.h"
+#include "Scheduler/VsyncController.h"
+
+namespace android::surfaceflinger {
+
+DefaultFactory::~DefaultFactory() = default;
+
+std::unique_ptr<HWComposer> DefaultFactory::createHWComposer(const std::string& serviceName) {
+    return std::make_unique<android::impl::HWComposer>(serviceName);
+}
+
+std::unique_ptr<scheduler::VsyncConfiguration> DefaultFactory::createVsyncConfiguration(
+        Fps currentRefreshRate) {
+    if (property_get_bool("debug.sf.use_phase_offsets_as_durations", false)) {
+// QTI_BEGIN: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+        ALOGI("%s: create WorkDuration", __func__);
+// QTI_END: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+        return std::make_unique<scheduler::impl::WorkDuration>(currentRefreshRate);
+    } else {
+// QTI_BEGIN: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+        ALOGI("%s: create PhaseOffsets", __func__);
+// QTI_END: 2023-01-17: Display: sf: Introduce QTI Extensions in AOSP
+        return std::make_unique<scheduler::impl::PhaseOffsets>(currentRefreshRate);
+    }
+}
+
+sp<DisplayDevice> DefaultFactory::createDisplayDevice(DisplayDeviceCreationArgs& creationArgs) {
+    return sp<DisplayDevice>::make(creationArgs);
+}
+
+sp<GraphicBuffer> DefaultFactory::createGraphicBuffer(uint32_t width, uint32_t height,
+                                                      PixelFormat format, uint32_t layerCount,
+                                                      uint64_t usage, std::string requestorName) {
+    return sp<GraphicBuffer>::make(width, height, format, layerCount, usage, requestorName);
+}
+
+std::unique_ptr<compositionengine::CompositionEngine> DefaultFactory::createCompositionEngine() {
+    return compositionengine::impl::createCompositionEngine();
+}
+
+sp<Layer> DefaultFactory::createLayer(const LayerCreationArgs& args) {
+    return sp<Layer>::make(args);
+}
+
+sp<LayerFE> DefaultFactory::createLayerFE(const std::string& layerName, const Layer* /* owner */) {
+    return sp<LayerFE>::make(layerName);
+}
+
+std::unique_ptr<FrameTracer> DefaultFactory::createFrameTracer() {
+    return std::make_unique<FrameTracer>();
+}
+
+std::unique_ptr<scheduler::FrameTimeline> DefaultFactory::createFrameTimeline(
+        std::shared_ptr<TimeStats> timeStats, pid_t surfaceFlingerPid) {
+    return std::make_unique<scheduler::impl::FrameTimeline>(timeStats, surfaceFlingerPid);
+}
+
+} // namespace android::surfaceflinger
+
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic pop // ignored "-Wconversion"
