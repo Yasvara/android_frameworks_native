@@ -22,6 +22,8 @@
 #include <selinux/android.h>
 #include <selinux/avc.h>
 
+#include <cstdarg>
+#include <cstdio>
 #include <sstream>
 
 namespace android {
@@ -82,9 +84,20 @@ static int auditCallback(void *data, security_class_t /*cls*/, char *buf, size_t
         ad->tname->c_str());
     return 0;
 }
+static thread_local bool tQuietSelinuxLog = false;
 
-static int quietLogCallback(int /*type*/, const char* /*fmt*/, ...) {
-    return 0;
+static int servicemanagerLogCallback(int type, const char* fmt, ...) {
+    if (tQuietSelinuxLog) {
+        return 0;
+    }
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    return kIsVendor
+        ? selinux_vendor_log_callback(type, "%s", buf)
+        : selinux_log_callback(type, "%s", buf);
 }
 #endif
 
@@ -101,7 +114,7 @@ Access::Access() {
     cb.func_audit = auditCallback;
     selinux_set_callback(SELINUX_CB_AUDIT, cb);
 
-    cb.func_log = kIsVendor ? selinux_vendor_log_callback : selinux_log_callback;
+    cb.func_log = servicemanagerLogCallback;
     selinux_set_callback(SELINUX_CB_LOG, cb);
 
     CHECK(selinux_status_open(true /*fallback*/) >= 0);
@@ -141,15 +154,20 @@ bool Access::canFindQuiet(const CallingContext& ctx, const std::string& name) {
     if (selabel_lookup(getSehandle(), &tctx, name.c_str(), SELABEL_CTX_ANDROID_SERVICE) != 0) {
         return false;
     }
-    union selinux_callback cb;
-    cb.func_log = quietLogCallback;
-    selinux_set_callback(SELINUX_CB_LOG, cb);
 
-    bool allowed = actionAllowed(ctx, tctx, "find", name);
+    AuditCallbackData data = {
+        .context = &ctx,
+        .tname = &name,
+    };
 
-    cb.func_log = kIsVendor ? selinux_vendor_log_callback : selinux_log_callback;
-    selinux_set_callback(SELINUX_CB_LOG, cb);
+    struct ScopedQuietLog {
+        bool prev;
+        ScopedQuietLog() : prev(tQuietSelinuxLog) { tQuietSelinuxLog = true; }
+        ~ScopedQuietLog() { tQuietSelinuxLog = prev; }
+    } quietGuard;
 
+    bool allowed = (0 == selinux_check_access(ctx.sid.c_str(), tctx, "service_manager", "find",
+                                              reinterpret_cast<void*>(&data)));
     freecon(tctx);
     return allowed;
 #else
